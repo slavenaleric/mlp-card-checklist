@@ -390,13 +390,25 @@ async function toggleScanner() {
 
     if (container.style.display === "none") {
         container.style.display = "block";
-        reader.innerHTML = `<video id="ocr-video" autoplay playsinline style="width: 100%; border-radius: 8px;"></video>
-                            <div id="ocr-status" style="font-size: 12px; color: #00e5ff; margin-top: 5px;">Scanning card code text...</div>`;
+        reader.innerHTML = `<video id="ocr-video" autoplay playsinline style="width: 100%; border-radius: 8px; object-fit: cover; transform: scale(1.5);"></video>
+                            <div id="ocr-status" style="font-size: 12px; color: #00e5ff; margin-top: 5px;">Hold card close & steady...</div>`;
         
         try {
+            // Request environment camera with advanced focus constraints
             videoStream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
+                video: { 
+                    facingMode: { exact: "environment" },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    focusMode: "continuous" // Try to force autofocus if supported by device
+                } 
+            }).catch(() => {
+                // Fallback if 'exact environment' fails on some phones
+                return navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } 
+                });
             });
+
             const video = document.getElementById("ocr-video");
             video.srcObject = videoStream;
 
@@ -405,15 +417,14 @@ async function toggleScanner() {
                 if (!videoStream) return;
                 
                 const canvas = document.createElement("canvas");
-                canvas.width = video.videoWidth || 640;
-                canvas.height = video.videoHeight || 480;
+                canvas.width = video.videoWidth || 1280;
+                canvas.height = video.videoHeight || 720;
                 const ctx = canvas.getContext("2d");
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                 try {
                     const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
                     
-                    // Clean text and look for pattern with optional L4/L1 suffix
                     const cleanText = text.replace(/\s+/g, '').toUpperCase();
                     const codeMatch = cleanText.match(/(RBE02|MLPME02|MLPME03|MLPE)-[A-Z0-9-]+/i);
                     
