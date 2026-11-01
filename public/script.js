@@ -1,6 +1,22 @@
 const socket = io();
 let collection = {};
 
+// Receive live state from server
+socket.on('init_state', (serverCollection) => {
+    collection = serverCollection;
+    initGrid();
+});
+
+// Sync changes instantly across all connected screens (PCs & Phones)
+socket.on('sync_collection', (serverCollection) => {
+    collection = serverCollection;
+    updateUI();
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+    setupInputListener();
+});
+
 const setList = [
     {
         rarity: "XR - EXTREME RARE",
@@ -245,32 +261,10 @@ const setList = [
     }
 ];
 
-// Receive live state from server
-socket.on('init_state', (serverCollection) => {
-    collection = serverCollection;
-    renderCards();
-});
-
-// Sync changes instantly across all connected screens (PCs & Phones)
-socket.on('sync_collection', (serverCollection) => {
-    collection = serverCollection;
-    renderCards();
-});
-
-document.addEventListener("DOMContentLoaded", () => {
-    setupInputListener();
-});
-
-function renderCards() {
+// Render the static grid structure ONCE
+function initGrid() {
     const container = document.getElementById("rarity-container");
     container.innerHTML = "";
-
-    let totalUniqueOwned = 0;
-    let totalCardsCount = 0;
-    let totalDuplicates = 0;
-    let highestRarity = "None";
-
-    const totalSetCards = setList.reduce((acc, g) => acc + g.cards.length, 0);
 
     setList.forEach(group => {
         const section = document.createElement("section");
@@ -285,23 +279,15 @@ function renderCards() {
         grid.className = "card-grid";
 
         group.cards.forEach(card => {
-            const count = collection[card.code] || 0;
-            if (count > 0) {
-                totalUniqueOwned++;
-                totalCardsCount += count;
-                if (count > 1) totalDuplicates += (count - 1);
-                highestRarity = group.rarity.split(" - ")[0];
-            }
-
             const cardEl = document.createElement("div");
-            cardEl.className = `card-item ${count > 0 ? 'owned' : ''}`;
+            cardEl.className = "card-item";
             cardEl.id = `card-${card.code}`;
             cardEl.innerHTML = `
                 <div class="card-code">${card.code}</div>
                 <div class="card-name">${card.name}</div>
                 <div class="counter-controls">
                     <button onclick="updateCount('${card.code}', -1)">-</button>
-                    <span id="count-${card.code}">${count}</span>
+                    <span id="count-${card.code}">0</span>
                     <button onclick="updateCount('${card.code}', 1)">+</button>
                 </div>
             `;
@@ -312,6 +298,38 @@ function renderCards() {
         container.appendChild(section);
     });
 
+    updateUI();
+}
+
+// Update only the counts and stats without wiping the DOM (fixes lag!)
+function updateUI() {
+    let totalUniqueOwned = 0;
+    let totalCardsCount = 0;
+    let totalDuplicates = 0;
+    let highestRarity = "None";
+    const totalSetCards = setList.reduce((acc, g) => acc + g.cards.length, 0);
+
+    setList.forEach(group => {
+        group.cards.forEach(card => {
+            const count = collection[card.code] || 0;
+            const cardEl = document.getElementById(`card-${card.code}`);
+            const countSpan = document.getElementById(`count-${card.code}`);
+
+            if (cardEl && countSpan) {
+                countSpan.innerText = count;
+                if (count > 0) {
+                    cardEl.classList.add('owned');
+                    totalUniqueOwned++;
+                    totalCardsCount += count;
+                    if (count > 1) totalDuplicates += (count - 1);
+                    highestRarity = group.rarity.split(" - ")[0];
+                } else {
+                    cardEl.classList.remove('owned');
+                }
+            }
+        });
+    });
+
     document.getElementById("total-owned").innerText = totalUniqueOwned;
     document.getElementById("stat-total-cards").innerText = totalCardsCount;
     document.getElementById("stat-completion").innerText = ((totalUniqueOwned / totalSetCards) * 100).toFixed(1) + "%";
@@ -319,8 +337,11 @@ function renderCards() {
     document.getElementById("stat-duplicates").innerText = totalDuplicates;
 }
 
+function renderCards() {
+    updateUI();
+}
+
 function updateCount(code, amount) {
-    // Send update to Node server via WebSocket
     socket.emit('update_card', { code, amount });
 
     const cardEl = document.getElementById(`card-${code}`);
@@ -348,7 +369,6 @@ function setupInputListener() {
     input.addEventListener("input", (e) => {
         let typedCode = e.target.value.trim().toUpperCase();
         
-        // Strip trailing variant suffixes like L4 or L1 if present from card printing
         if (typedCode.endsWith("L4") || typedCode.endsWith("L1")) {
             typedCode = typedCode.slice(0, -2);
         }
@@ -379,84 +399,6 @@ function setupInputListener() {
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     });
-}
-
-let videoStream = null;
-let ocrInterval = null;
-
-async function toggleScanner() {
-    const container = document.getElementById("scanner-container");
-    const reader = document.getElementById("reader");
-
-    if (container.style.display === "none") {
-        container.style.display = "block";
-        reader.innerHTML = `<video id="ocr-video" autoplay playsinline style="width: 100%; border-radius: 8px; object-fit: cover; transform: scale(1.5);"></video>
-                            <div id="ocr-status" style="font-size: 12px; color: #00e5ff; margin-top: 5px;">Hold card close & steady...</div>`;
-        
-        try {
-            // Request environment camera with advanced focus constraints
-            videoStream = await navigator.mediaDevices.getUserMedia({ 
-                video: { 
-                    facingMode: { exact: "environment" },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    focusMode: "continuous" // Try to force autofocus if supported by device
-                } 
-            }).catch(() => {
-                // Fallback if 'exact environment' fails on some phones
-                return navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } 
-                });
-            });
-
-            const video = document.getElementById("ocr-video");
-            video.srcObject = videoStream;
-
-            // Run OCR scan every 1.2 seconds on video feed
-            ocrInterval = setInterval(async () => {
-                if (!videoStream) return;
-                
-                const canvas = document.createElement("canvas");
-                canvas.width = video.videoWidth || 1280;
-                canvas.height = video.videoHeight || 720;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                try {
-                    const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
-                    
-                    const cleanText = text.replace(/\s+/g, '').toUpperCase();
-                    const codeMatch = cleanText.match(/(RBE02|MLPME02|MLPME03|MLPE)-[A-Z0-9-]+/i);
-                    
-                    if (codeMatch) {
-                        let detectedCode = codeMatch[0];
-                        if (detectedCode.endsWith('L4') || detectedCode.endsWith('L1')) {
-                            detectedCode = detectedCode.slice(0, -2);
-                        }
-
-                        document.getElementById("code-input").value = detectedCode;
-                        document.getElementById("code-input").dispatchEvent(new Event('input'));
-                        
-                        document.getElementById("ocr-status").innerText = `Scanned: ${detectedCode}`;
-                        setTimeout(() => toggleScanner(), 1000); // Close scanner once recognized
-                    }
-                } catch (err) {
-                    // Ignore transient frame recognition errors
-                }
-            }, 1200);
-
-        } catch (err) {
-            alert("Camera access denied or unavailable.");
-            container.style.display = "none";
-        }
-    } else {
-        if (ocrInterval) clearInterval(ocrInterval);
-        if (videoStream) {
-            videoStream.getTracks().forEach(track => track.stop());
-            videoStream = null;
-        }
-        container.style.display = "none";
-    }
 }
 
 function triggerConfetti() {
