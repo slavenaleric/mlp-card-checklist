@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLP Rainbow Edition Series 2 - Card Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="confetti-canvas"></canvas>
+
+    <header>
+        <h1>MLP: FRIENDSHIP ETERNAL</h1>
+        <h2>Rainbow Edition Series 2 Tracker</h2>
+        
+        <div class="stats-bar">
+            <span>Unique Collected: <strong id="total-owned" style="color: var(--accent-yellow);">0</strong> / 170</span>
+            <button onclick="resetCounts()" class="danger-btn">Reset All</button>
+        </div>
+
+        <div class="quick-entry">
+            <label for="code-input">Scan/Type Card Code:</label>
+            <input type="text" id="code-input" placeholder="e.g. XR-01, USR-02, UR-01..." autofocus>
+            <div id="feedback" class="feedback-msg"></div>
+        </div>
+    </header>
+
+    <main id="rarity-container"></main>
+
+    <!-- Bottom Analytics Dashboard -->
+    <section class="analytics-dashboard">
+        <h3>📊 Collection Analytics</h3>
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="number" id="stat-total-cards">0</div>
+                <div class="label">Total Cards Count (Inc. Duplicates)</div>
+            </div>
+            <div class="stat-box">
+                <div class="number" id="stat-completion">0%</div>
+                <div class="label">Set Completion Rate</div>
+            </div>
+            <div class="stat-box">
+                <div class="number" id="stat-highest-rarity">None</div>
+                <div class="label">Highest Rarity Collected</div>
+            </div>
+            <div class="stat-box">
+                <div class="number" id="stat-duplicates">0</div>
+                <div class="label">Total Duplicates Available for Trade</div>
+            </div>
+        </div>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>
