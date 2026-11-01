@@ -346,7 +346,12 @@ function setupInputListener() {
     const feedback = document.getElementById("feedback");
 
     input.addEventListener("input", (e) => {
-        const typedCode = e.target.value.trim().toUpperCase();
+        let typedCode = e.target.value.trim().toUpperCase();
+        
+        // Strip trailing variant suffixes like L4 or L1 if present from card printing
+        if (typedCode.endsWith("L4") || typedCode.endsWith("L1")) {
+            typedCode = typedCode.slice(0, -2);
+        }
         
         let matchedCard = null;
         let matchedGroup = null;
@@ -376,34 +381,70 @@ function setupInputListener() {
     });
 }
 
-// Phone Camera Scanner Setup
-let html5QrCode = null;
-function toggleScanner() {
+let videoStream = null;
+let ocrInterval = null;
+
+async function toggleScanner() {
     const container = document.getElementById("scanner-container");
+    const reader = document.getElementById("reader");
+
     if (container.style.display === "none") {
         container.style.display = "block";
-        html5QrCode = new Html5Qrcode("reader");
-        html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 150 } },
-            (decodedText) => {
-                document.getElementById("code-input").value = decodedText;
-                document.getElementById("code-input").dispatchEvent(new Event('input'));
-                toggleScanner();
-            },
-            (errorMessage) => {}
-        ).catch(err => {
+        reader.innerHTML = `<video id="ocr-video" autoplay playsinline style="width: 100%; border-radius: 8px;"></video>
+                            <div id="ocr-status" style="font-size: 12px; color: #00e5ff; margin-top: 5px;">Scanning card code text...</div>`;
+        
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
+            const video = document.getElementById("ocr-video");
+            video.srcObject = videoStream;
+
+            // Run OCR scan every 1.2 seconds on video feed
+            ocrInterval = setInterval(async () => {
+                if (!videoStream) return;
+                
+                const canvas = document.createElement("canvas");
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                try {
+                    const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
+                    
+                    // Clean text and look for pattern with optional L4/L1 suffix
+                    const cleanText = text.replace(/\s+/g, '').toUpperCase();
+                    const codeMatch = cleanText.match(/(RBE02|MLPME02|MLPME03|MLPE)-[A-Z0-9-]+/i);
+                    
+                    if (codeMatch) {
+                        let detectedCode = codeMatch[0];
+                        if (detectedCode.endsWith('L4') || detectedCode.endsWith('L1')) {
+                            detectedCode = detectedCode.slice(0, -2);
+                        }
+
+                        document.getElementById("code-input").value = detectedCode;
+                        document.getElementById("code-input").dispatchEvent(new Event('input'));
+                        
+                        document.getElementById("ocr-status").innerText = `Scanned: ${detectedCode}`;
+                        setTimeout(() => toggleScanner(), 1000); // Close scanner once recognized
+                    }
+                } catch (err) {
+                    // Ignore transient frame recognition errors
+                }
+            }, 1200);
+
+        } catch (err) {
             alert("Camera access denied or unavailable.");
             container.style.display = "none";
-        });
-    } else {
-        if (html5QrCode) {
-            html5QrCode.stop().then(() => {
-                container.style.display = "none";
-            }).catch(err => { container.style.display = "none"; });
-        } else {
-            container.style.display = "none";
         }
+    } else {
+        if (ocrInterval) clearInterval(ocrInterval);
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+        container.style.display = "none";
     }
 }
 
