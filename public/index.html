@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MLP Rainbow Edition Series 2 - Card Tracker</title>
+    <title>MLP Rainbow Edition Series 2 - Live Tracker</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Include HTML5 QR Code Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 </head>
 <body>
     <canvas id="confetti-canvas"></canvas>
@@ -16,11 +18,18 @@
         <div class="stats-bar">
             <span>Unique Collected: <strong id="total-owned" style="color: var(--accent-yellow);">0</strong> / 170</span>
             <button onclick="resetCounts()" class="danger-btn">Reset All</button>
+            <button onclick="toggleScanner()" class="danger-btn" style="background: linear-gradient(135deg, #00c6ff, #0072ff);">📷 Open Camera Scanner</button>
+        </div>
+
+        <!-- Camera Scanner View Box -->
+        <div id="scanner-container" style="display:none; margin: 15px auto; max-width: 350px; background: #120720; padding: 15px; border-radius: 12px; border: 2px solid var(--mlp-pink);">
+            <div id="reader" style="width: 100%;"></div>
+            <button onclick="toggleScanner()" style="margin-top: 10px; background: #ff4e50; color: #fff; border:none; padding:6px 12px; border-radius:5px; cursor:pointer; font-family:inherit;">Close Camera</button>
         </div>
 
         <div class="quick-entry">
             <label for="code-input">Scan/Type Card Code:</label>
-            <input type="text" id="code-input" placeholder="e.g. XR-01, USR-02, UR-01..." autofocus>
+            <input type="text" id="code-input" placeholder="e.g. RBE02-XR-001..." autofocus>
             <div id="feedback" class="feedback-msg"></div>
         </div>
     </header>
@@ -50,6 +59,8 @@
         </div>
     </section>
 
+    <!-- Socket.io Real-Time Client -->
+    <script src="/socket.io/socket.io.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

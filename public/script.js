@@ -1,3 +1,6 @@
+const socket = io();
+let collection = {};
+
 const setList = [
     {
         rarity: "XR - EXTREME RARE",
@@ -242,10 +245,19 @@ const setList = [
     }
 ];
 
-let collection = JSON.parse(localStorage.getItem('mlp_card_collection')) || {};
+// Receive live state from server
+socket.on('init_state', (serverCollection) => {
+    collection = serverCollection;
+    renderCards();
+});
+
+// Sync changes instantly across all connected screens (PCs & Phones)
+socket.on('sync_collection', (serverCollection) => {
+    collection = serverCollection;
+    renderCards();
+});
 
 document.addEventListener("DOMContentLoaded", () => {
-    renderCards();
     setupInputListener();
 });
 
@@ -307,18 +319,9 @@ function renderCards() {
     document.getElementById("stat-duplicates").innerText = totalDuplicates;
 }
 
-function updateCount(code, amount, triggerCelebration = false) {
-    const current = collection[code] || 0;
-    const newCount = Math.max(0, current + amount);
-    
-    if (newCount === 0) {
-        delete collection[code];
-    } else {
-        collection[code] = newCount;
-    }
-
-    localStorage.setItem('mlp_card_collection', JSON.stringify(collection));
-    renderCards();
+function updateCount(code, amount) {
+    // Send update to Node server via WebSocket
+    socket.emit('update_card', { code, amount });
 
     const cardEl = document.getElementById(`card-${code}`);
     if (cardEl) {
@@ -326,8 +329,15 @@ function updateCount(code, amount, triggerCelebration = false) {
         setTimeout(() => cardEl.classList.remove("pulse-animation"), 800);
     }
 
-    if (triggerCelebration && amount > 0) {
+    let matchedGroup = null;
+    setList.forEach(group => {
+        if (group.cards.some(c => c.code === code)) matchedGroup = group;
+    });
+
+    if (matchedGroup && matchedGroup.level >= 3 && amount > 0) {
         triggerConfetti();
+        const matchedCard = matchedGroup.cards.find(c => c.code === code);
+        if (matchedCard) sendDiscordNotification(matchedCard.name, matchedGroup.rarity);
     }
 }
 
@@ -350,15 +360,9 @@ function setupInputListener() {
         });
 
         if (matchedCard) {
-            const isHighRarity = matchedGroup.level >= 3; // XR, USR, UR, PR
-            
-            updateCount(matchedCard.code, 1, isHighRarity);
+            updateCount(matchedCard.code, 1);
 
-            // <-- THIS CALLS THE WEBHOOK WHEN YOU HIT HIGH RARITY
-            if (isHighRarity) {
-                sendDiscordNotification(matchedCard.name, matchedGroup.rarity);
-            }
-
+            const isHighRarity = matchedGroup.level >= 3;
             feedback.style.color = isHighRarity ? "#ffde59" : "#ffb3da";
             feedback.innerText = isHighRarity 
                 ? `WOW! Unpacked HIGH RARITY (${matchedGroup.rarity.split(" - ")[0]}): ${matchedCard.name}!`
@@ -370,6 +374,37 @@ function setupInputListener() {
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     });
+}
+
+// Phone Camera Scanner Setup
+let html5QrCode = null;
+function toggleScanner() {
+    const container = document.getElementById("scanner-container");
+    if (container.style.display === "none") {
+        container.style.display = "block";
+        html5QrCode = new Html5Qrcode("reader");
+        html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 150 } },
+            (decodedText) => {
+                document.getElementById("code-input").value = decodedText;
+                document.getElementById("code-input").dispatchEvent(new Event('input'));
+                toggleScanner();
+            },
+            (errorMessage) => {}
+        ).catch(err => {
+            alert("Camera access denied or unavailable.");
+            container.style.display = "none";
+        });
+    } else {
+        if (html5QrCode) {
+            html5QrCode.stop().then(() => {
+                container.style.display = "none";
+            }).catch(err => { container.style.display = "none"; });
+        } else {
+            container.style.display = "none";
+        }
+    }
 }
 
 function triggerConfetti() {
@@ -407,7 +442,6 @@ function triggerConfetti() {
     animate();
 }
 
-// Paste your Discord Webhook URL inside the quotes below
 const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1566414328465326110/HvrVriQa_c_U5Yt-u0fBfHUcrTzmnkxVOAqEifCqlad-NwH1Kq9yolli5ZbW57M16gGk";
 
 function sendDiscordNotification(cardName, rarityName) {
@@ -419,18 +453,13 @@ function sendDiscordNotification(cardName, rarityName) {
 
     fetch(DISCORD_WEBHOOK_URL, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     }).catch(error => console.error("Error sending webhook:", error));
 }
 
 function resetCounts() {
     if (confirm("Are you sure you want to clear your card counts?")) {
-        collection = {};
-        localStorage.setItem('mlp_card_collection', JSON.stringify(collection));
-        renderCards();
+        socket.emit('reset_collection');
     }
 }
-
